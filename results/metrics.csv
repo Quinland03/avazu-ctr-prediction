@@ -1,4 +1,5 @@
-model,sample_fraction,training_rows,test_rows,auc
-Logistic Regression,0.05,1616093,405175,0.6458788423
-Decision Tree,0.05,1616093,405175,0.4552487916
-Random Forest,0.05,1616093,405175,0.6495207702
+model,sample_fraction,auc
+Decision Tree,0.05,0.4552487916
+Logistic Regression,0.05,0.6458788423
+Random Forest,0.05,0.6495207702
+Gradient Boosted Trees,0.05,0.6894988086
