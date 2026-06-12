@@ -1,5 +1,6 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, substring
+from pyspark.ml.functions import vector_to_array
 
 from pyspark.ml import Pipeline
 from pyspark.ml.feature import (
@@ -7,11 +8,11 @@ from pyspark.ml.feature import (
     OneHotEncoder,
     VectorAssembler
 )
-from pyspark.ml.classification import RandomForestClassifier
+from pyspark.ml.classification import GBTClassifier
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 
 spark = SparkSession.builder.appName(
-    "AvazuRandomForest"
+    "AvazuGradientBoosting"
 ).getOrCreate()
 
 print("Loading data...")
@@ -95,16 +96,17 @@ assembler = VectorAssembler(
     outputCol="features"
 )
 
-rf = RandomForestClassifier(
+gbt = GBTClassifier(
     featuresCol="features",
     labelCol="click",
-    numTrees=20,
-    maxDepth=6,
+    maxIter=20,
+    maxDepth=5,
+    maxBins=64,
     seed=42
 )
 
 pipeline = Pipeline(
-    stages=indexers + encoders + [assembler, rf]
+    stages=indexers + encoders + [assembler, gbt]
 )
 
 train, test = df.randomSplit(
@@ -115,7 +117,7 @@ train, test = df.randomSplit(
 print("Training rows:", train.count())
 print("Testing rows:", test.count())
 
-print("Training Random Forest...")
+print("Training Gradient Boosted Trees...")
 
 model = pipeline.fit(train)
 
@@ -123,14 +125,16 @@ print("Generating predictions...")
 
 predictions = model.transform(test)
 
+# -----------------------------
+# Calculate Log Loss
+# -----------------------------
 from pyspark.sql.functions import col, log, when
-from pyspark.ml.functions import vector_to_array
 
 eps = 1e-15
 
 preds = predictions.select(
     col("click").alias("label"),
-    vector_to_array(col("probability"))[1].alias("p")
+    vector_to_array("probability")[1].alias("p")
 )
 
 preds = preds.withColumn(
@@ -150,6 +154,9 @@ logloss = logloss_df.agg(
     {"logloss": "avg"}
 ).collect()[0][0]
 
+# -----------------------------
+# Calculate AUC
+# -----------------------------
 evaluator = BinaryClassificationEvaluator(
     labelCol="click",
     rawPredictionCol="rawPrediction",
@@ -158,8 +165,11 @@ evaluator = BinaryClassificationEvaluator(
 
 auc = evaluator.evaluate(predictions)
 
+# -----------------------------
+# Print Results
+# -----------------------------
 print("\n========================")
-print("Random Forest Results")
+print("Gradient Boosted Trees Results")
 print("========================")
 print(f"AUC: {auc:.6f}")
 print(f"Log Loss: {logloss:.6f}")

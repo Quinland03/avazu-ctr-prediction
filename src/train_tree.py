@@ -58,6 +58,33 @@ print("Testing rows:", test.count())
 model = pipeline.fit(train)
 predictions = model.transform(test)
 
+from pyspark.sql.functions import col, log, when
+from pyspark.ml.functions import vector_to_array
+
+eps = 1e-15
+
+preds = predictions.select(
+    col("click").alias("label"),
+    vector_to_array(col("probability"))[1].alias("p")
+)
+
+preds = preds.withColumn(
+    "p",
+    when(col("p") < eps, eps)
+    .when(col("p") > 1 - eps, 1 - eps)
+    .otherwise(col("p"))
+)
+
+logloss_df = preds.withColumn(
+    "logloss",
+    -(col("label") * log(col("p")) +
+      (1 - col("label")) * log(1 - col("p")))
+)
+
+logloss = logloss_df.agg(
+    {"logloss": "avg"}
+).collect()[0][0]
+
 evaluator = BinaryClassificationEvaluator(
     labelCol="click",
     rawPredictionCol="rawPrediction",
@@ -66,8 +93,17 @@ evaluator = BinaryClassificationEvaluator(
 
 auc = evaluator.evaluate(predictions)
 
-print("Decision Tree AUC:", auc)
+print("\n========================")
+print("Decision Tree Results")
+print("========================")
+print(f"AUC: {auc:.6f}")
+print(f"Log Loss: {logloss:.6f}")
+print("========================\n")
 
-predictions.select("click", "probability", "prediction").show(10, truncate=False)
+predictions.select(
+    "click",
+    "probability",
+    "prediction"
+).show(10, truncate=False)
 
 spark.stop()
